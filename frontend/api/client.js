@@ -3,18 +3,37 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import API_BASE_URL, { CONFIG } from '../config';
 
+let memoryStore = {};
+
 const getSecureItemAsync = async (key) => {
     if (Platform.OS === 'web') {
         return localStorage.getItem(key);
     }
-    return await SecureStore.getItemAsync(key);
+    try {
+        const val = await Promise.race([
+            SecureStore.getItemAsync(key),
+            new Promise((_, reject) => setTimeout(() => reject('SecureStore timeout'), 2000))
+        ]);
+        return val !== null ? val : memoryStore[key];
+    } catch (error) {
+        console.warn('SecureStore GET error/timeout, using memory fallback:', error);
+        return memoryStore[key];
+    }
 };
 
 const setSecureItemAsync = async (key, value) => {
     if (Platform.OS === 'web') {
         localStorage.setItem(key, value);
     } else {
-        await SecureStore.setItemAsync(key, value);
+        memoryStore[key] = value;
+        try {
+            await Promise.race([
+                SecureStore.setItemAsync(key, value),
+                new Promise((_, reject) => setTimeout(() => reject('SecureStore timeout'), 2000))
+            ]);
+        } catch (error) {
+            console.warn('SecureStore SET error/timeout:', error);
+        }
     }
 };
 
@@ -22,7 +41,15 @@ const deleteSecureItemAsync = async (key) => {
     if (Platform.OS === 'web') {
         localStorage.removeItem(key);
     } else {
-        await SecureStore.deleteItemAsync(key);
+        delete memoryStore[key];
+        try {
+            await Promise.race([
+                SecureStore.deleteItemAsync(key),
+                new Promise((_, reject) => setTimeout(() => reject('SecureStore timeout'), 2000))
+            ]);
+        } catch (error) {
+            console.warn('SecureStore DELETE error/timeout:', error);
+        }
     }
 };
 const api = axios.create({
